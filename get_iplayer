@@ -52,6 +52,9 @@ my $version = 2.79;
 use Env qw[@PATH];
 use Fcntl;
 use File::Copy;
+# BEGIN TAGGER USE STMT
+use File::Basename;
+# END TAGGER USE STMT
 use File::Path;
 use File::stat;
 use File::Spec;
@@ -85,6 +88,9 @@ my %prog_types = (
 	liveradio	=> 'Programme::liveradio',
 	livetv		=> 'Programme::livetv',
 );
+# BEGIN TAGGER DEFS
+my %tagger_types;
+# END TAGGER DEFS
 
 
 # Programme instance data
@@ -241,6 +247,11 @@ my $opt_format = {
 	id3v2		=> [ 1, "id3tag|id3v2=s", 'External Program', '--id3v2 <path>', "Location of id3v2 or id3tag binary"],
 	mplayer		=> [ 1, "mplayer=s", 'External Program', '--mplayer <path>', "Location of mplayer binary"],
 
+# BEGIN TAGGER OPT_FORMAT
+	# Tagger Library
+	listtaggers	=> [ 1, "listtaggers|list-taggers", 'Tagger Library', '--list-taggers', "Display list of available metadata taggers"],
+# END TAGGER OPT_FORMAT
+
 	# Deprecated
 
 };
@@ -372,11 +383,34 @@ if ( $opt_pre->{preset} ) {
 }
 logger "DEBUG: User Preset Options File: $optfile_preset\n" if defined $optfile_preset && $opt->{debug};
 
+# BEGIN TAGGER LOAD
+unshift @INC, ("$profile_dir/lib", '/usr/share/get_iplayer/lib');
+eval 'use Get_iPlayer::Tagger';
+if ( ! $@ ) {
+	my $tagger_dir = dirname($INC{'Get_iPlayer/Tagger.pm'});
+	$tagger_dir .= "/Tagger";
+	if ( opendir(DIR, $tagger_dir) ) {
+		my @tagger_files = grep(/^\w+\.pm$/, readdir(DIR));
+		closedir(DIR);
+		%tagger_types = map {
+			my ($pm) = fileparse($_, '.pm');
+			lc($pm) => "Get_iPlayer::Tagger::$pm";
+		} @tagger_files;
+		# load modules (also needed to make bound options work)
+		for (values %tagger_types) {
+			eval "use $_";
+		}
+	}
+}
+# END TAGGER LOAD
 
 # Parse cmdline opts definitions from each Programme class/subclass
 Options->get_class_options( $_ ) for qw( Streamer Programme Pvr );
 Options->get_class_options( progclass($_) ) for progclass();
 Options->get_class_options( "Streamer::$_" ) for qw( mms rtmp rtsp iphone mms 3gp http );
+# BEGIN TAGGER OPTONS
+Options->get_class_options($_) for ('Get_iPlayer::Tagger', values %tagger_types);
+# END TAGGER OPTIONS
 
 
 # Parse the cmdline using the opt_format hash
@@ -421,6 +455,13 @@ if ( $opt->{listplugins} ) {
 	main::logger join(',', keys %prog_types)."\n";
 	exit 0;
 }
+
+# BEGIN TAGGER LIST
+if ( $opt->{listtaggers} ) {
+	main::logger join(',', sort keys %tagger_types)."\n";
+	exit 0;
+}
+# END TAGGER LIST
 
 # Show copyright notice
 logger Options->copyright_notice if not $opt->{nocopyright};
@@ -481,11 +522,18 @@ my $info_limit		= 40;
 my $proxy_save;
 
 # Option dependant var definitions
-my $bin;
+# BEGIN TAGGER BIN DEF
+my $bin = {};
+# END TAGGER BIN DEF
 my $binopts;
 my @search_args = @ARGV;
 my $memcache = {};
 
+# BEGIN TAGGER INIT
+# init tagger here after $bin is instantiated
+# $bin cannot be undef when passed to tagger constructor
+init_tagger();
+# END TAGGER INIT
 
 ########### Main processing ###########
 
@@ -610,6 +658,46 @@ if ( $opt->{pvradd} ) {
 exit 0;
 
 
+# BEGIN TAGGER INIT_FUNC
+sub init_tagger {
+	# Process tagger option
+	$opt->{tagger} ||= 'default';
+	if ( $opt->{tagger} ) {
+		my $tagger_name = lc($opt->{tagger});
+		if ( $tagger_types{$tagger_name} ) {
+			my $tagger_type = $tagger_types{$tagger_name};
+			my $tagger = $tagger_type->new(
+				opt => $opt,
+				bin => $bin,
+				logger => \&main::logger,
+				run_cmd => \&main::run_cmd,
+				exists_in_path => \&main::exists_in_path
+			);
+			if ( $tagger ) {
+				Programme->tagger($tagger);
+				# Process tagtemplate option
+				if ( $opt->{tagtemplate} ) {
+					my $tagtemplate_file = $opt->{tagtemplate};
+					if ( -f $tagtemplate_file ) {
+						my $tagtemplate = do $tagtemplate_file;
+						if ( $tagtemplate ) {
+							$tagger->tagtemplate($tagtemplate);
+						} else {
+							logger "WARNING: Could not load tag template '$tagtemplate_file', using built-in tag template\n";
+						}
+					} else {
+						logger "WARNING: Could not locate tag template '$tagtemplate_file', using built-in tag template\n";
+					}
+				}
+			} else {
+				logger "WARNING: Could not create tagger '$tagger_name'\n";
+			}
+		} else {
+			logger "WARNING: Could not locate tagger '$tagger_name'\n";
+		}
+	}
+}
+# BEGIN TAGGER INIT_FUNC
 
 sub init_search {
 	# Show options
@@ -3112,7 +3200,9 @@ sub usage {
 
 	# Build the help usage text
 	# Each section
-	for my $section ( 'Search', 'Display', 'Recording', 'Download', 'Output', 'PVR', 'Config', 'External Program', 'Misc' ) {
+# BEGIN TAGGER USAGE
+	for my $section ( 'Search', 'Display', 'Recording', 'Download', 'Output', 'PVR', 'Config', 'External Program', 'Tagging', 'Tagger Library', 'Misc' ) {
+# END TAGGER USAGE
 		next if not defined $section_name{$section};
 		my @lines;
 		my @manlines;
@@ -3749,6 +3839,7 @@ sub check {
 
 package Programme;
 
+use Encode;
 use Env qw[@PATH];
 use Fcntl;
 use File::Basename;
@@ -3769,6 +3860,9 @@ use Time::Local;
 use URI;
 use Cwd 'abs_path';
 
+# BEGIN TAGGER PROGRAMME DEFS
+my $tagger_ref;
+# END TAGGER PROGRAMME DEFS
 # Class vars
 # Global options
 my $optref;
@@ -4204,10 +4298,7 @@ sub mode_ver_download_retry_loop {
 			} else {
 				# Add to history, tag file, and run post-record command if a stream was written
 				main::logger "\n";
-				if ( ! $opt->{nowrite} ) {
-					$hist->add( $prog );
-					$prog->tag_file;
-				}
+# BEGIN TAGGER DOWNLOADS FIRST
 				if ( $opt->{thumb} ) {
 					$prog->create_dir();
 					$prog->download_thumbnail();
@@ -4216,6 +4307,11 @@ sub mode_ver_download_retry_loop {
 					$prog->create_dir();
 					$prog->create_metadata_file();
 				}
+				if ( ! $opt->{nowrite} ) {
+					$hist->add( $prog );
+					$prog->tag_file;
+				}
+# END TAGGER DOWNLOADS FIRST
 				if ( $opt->{command} && ! $opt->{nowrite} ) {
 					$prog->run_user_command( $opt->{command} );
 				}
@@ -4242,10 +4338,62 @@ sub report {
 	return 0;
 }
 
+# BEGIN TAGGER PROGRAMME SUBS
+# accessor for global tagger object
+sub tagger {
+	my $prog = shift;
+	if ( @_ ) { $Programme::tagger_ref = shift; }
+	return $Programme::tagger_ref;
+}
+
+# create metadata for tagging
+sub tag_metadata {
+	my $prog = shift;
+	my $meta;
+	while ( my ($key, $val) = each %{$prog} ) {
+		if ( ref($val) eq 'HASH' ) {
+			$meta->{$key} = $prog->{$key}->{$prog->{version}};
+		} else {
+			$meta->{$key} = $val;
+		}
+	}
+	# expect input in UTF-8
+	while ( my ($key, $val) = each %{$meta} ) {
+		$meta->{$key} = decode("utf8", $val);
+	}
+	return $meta;
+}
+
+# add metadata to file
+sub tag_file {
+	my $prog = shift;
+	# Tag the file
+	if ( $prog->tagger ) {
+		# skip if file does not exist
+		if ( -f $prog->{filename} ) {
+			# Download the thumbnail if it doesn't already exist
+			$prog->download_thumbnail if ! -f $prog->{thumbfile};
+			# Gather metadata values
+			my $meta = $prog->tag_metadata;
+			# write metadata tags to file
+			if ( $prog->tagger->tag_file($meta) ) {
+				main::logger "ERROR: tagger failed\n";
+			}
+			# Clean up thumbnail file if necessary
+			unlink $prog->{thumbfile} if ! $opt->{thumb};
+		}
+	} else {
+		main::logger "INFO: no metadata tagger defined, falling back to built-in tagging\n" if $opt->{verbose};
+		return $prog->tag_file_builtin
+	}
+}
+# END TAGGER PROGRAMME SUBS
 
 
 # Add id3 tag to MP3/AAC files if required
-sub tag_file {
+# BEGIN TAGGER PROGRAMME SUB CHANGE
+sub tag_file_builtin {
+# END TAGGER PROGRAMME SUB CHANGE
 	my $prog = shift;
 
 	# Return if file does not exist
