@@ -300,6 +300,9 @@ Use ISO8601 dates (YYYY\-MM\-DD) in filenames
 \fB\-\-metadata <type>
 Create metadata info file after recording. Valid types are: xbmc, xbmc_movie, freevo, generic
 .TP
+\fB\-\-mkv
+Output video in MKV container instead of MP4. Currently no tagging supported from get_iplayer for MKV output
+.TP
 \fB\-\-mythtv <file>
 Create Mythtv streams XML of matching programmes in specified file
 .TP
@@ -497,7 +500,13 @@ AtomicParsley supports \-\-longdesc argument for long description text
 AtomicParsley supports \-\-longDescription argument for long description text
 .TP
 \fB\-\-tag\-podcast
-Tag downloaded radio/tv programmes as iTunes podcasts (requires MP3::Tag module for AAC/MP3 files)
+Tag downloaded radio and tv programmes as iTunes podcasts (requires MP3::Tag module for AAC/MP3 files)
+.TP
+\fB\-\-tag\-podcast\-radio
+Tag only downloaded radio programmes as iTunes podcasts (requires MP3::Tag module for AAC/MP3 files)
+.TP
+\fB\-\-tag\-podcast\-tv
+Tag only downloaded tv programmes as iTunes podcasts
 .TP
 \fB\-\-tag\-utf8
 AtomicParsley expects UTF\-8 input
@@ -510,6 +519,5 @@ get_iplayer v2.79, Copyright (C) 2008\-2010 Phil Lewis
   This program comes with ABSOLUTELY NO WARRANTY; for details use \-\-warranty.
   This is free software, and you are welcome to redistribute it under certain
   conditions; use \-\-conditions for details.
-
 
 

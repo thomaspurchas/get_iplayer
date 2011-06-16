@@ -249,7 +249,9 @@ my $opt_format = {
 	tag_hdvideo => [ 1, "taghdvideo|tag-hdvideo!", 'Tagging', '--tag-hdvideo', "AtomicParsley supports --hdvideo argument for HD video flag"],
 	tag_longdesc => [ 1, "taglongdesc|tag-longdesc!", 'Tagging', '--tag-longdesc', "AtomicParsley supports --longdesc argument for long description text"],
 	tag_longdescription => [ 1, "taglongdescription|tag-longdescription!", 'Tagging', '--tag-longdescription', "AtomicParsley supports --longDescription argument for long description text"],
-	tag_podcast => [ 1, "tagpodcast|tag-podcast!", 'Tagging', '--tag-podcast', "Tag downloaded radio/tv programmes as iTunes podcasts (requires MP3::Tag module for AAC/MP3 files)"],
+	tag_podcast => [ 1, "tagpodcast|tag-podcast!", 'Tagging', '--tag-podcast', "Tag downloaded radio and tv programmes as iTunes podcasts (requires MP3::Tag module for AAC/MP3 files)"],
+	tag_podcast_radio => [ 1, "tagpodcastradio|tag-podcast-radio!", 'Tagging', '--tag-podcast-radio', "Tag only downloaded radio programmes as iTunes podcasts (requires MP3::Tag module for AAC/MP3 files)"],
+	tag_podcast_tv => [ 1, "tagpodcasttv|tag-podcast-tv!", 'Tagging', '--tag-podcast-tv', "Tag only downloaded tv programmes as iTunes podcasts"],
 	tag_utf8 => [ 1, "tagutf8|tag-utf8!", 'Tagging', '--tag-utf8', "AtomicParsley expects UTF-8 input"],
 
 	# Deprecated
@@ -9401,7 +9403,7 @@ sub tags_from_metadata {
 		$tags->{title} = $meta->{title};
 	} else {
 		# fix up episode if necessary
-		(my $title = $meta->{episode}) =~ s/\s*-\s*//g;
+		(my $title = $meta->{episode}) =~ s/[\s\-]+$//;
 		$tags->{title} = $title ? $title : $meta->{name};
 	}
 	$tags->{artist} = $meta->{channel};
@@ -9456,7 +9458,9 @@ sub tags_from_metadata {
 	# tvshow flag
 	$tags->{is_tvshow} = $tags->{stik} eq 'TV Show';
 	# podcast flag
-	$tags->{is_podcast} = $meta->{type} =~ /podcast/i || $opt->{tag_podcast};
+	$tags->{is_podcast} = $meta->{type} =~ /podcast/i || $opt->{tag_podcast}
+		|| ( $opt->{tag_podcast_radio} && ! $tags->{is_video} )
+		|| ( $opt->{tag_podcast_tv} && $tags->{is_video} );
 	return $tags;
 }
 
